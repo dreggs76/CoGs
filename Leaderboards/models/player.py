@@ -1,6 +1,8 @@
-from . import APP, MAX_NAME_LENGTH, ALL_LEAGUES
+from . import APP, MAX_NAME_LENGTH, ALL_LEAGUES, visibility_options
 
 from ..leaderboards.enums import LB_PLAYER_LIST_STYLE
+
+from Import.models import Import
 
 from tailslide import Median
 
@@ -25,13 +27,13 @@ from django_model_privacy_mixin import PrivacyMixIn
 
 from django_rich_views.options import flt
 from django_rich_views.decorators import property_method
-from django_rich_views.model import field_render, link_target_url
+from django_rich_views.model import field_render, link_target_url, NotesMixIn
 
 from bitfield import BitField
 from bitfield.forms import BitFieldCheckboxSelectMultiple
 
 
-class Player(PrivacyMixIn, AdminModel):
+class Player(AdminModel, PrivacyMixIn, NotesMixIn):
     '''
     A player who is presumably collecting Ratings on Games and participating in leaderboards in one or more Leagues.
 
@@ -64,20 +66,17 @@ class Player(PrivacyMixIn, AdminModel):
     # account
     user = models.OneToOneField(User, verbose_name='Username', related_name='player', blank=True, null=True, default=None, on_delete=models.SET_NULL)
 
-    # Privacy control (interfaces with django_model_privacy_mixin)
-    visibility = (
-        ('all', 'Everyone'),
-        ('share_leagues', 'League Members'),
-        ('share_teams', 'Team Members'),
-        ('all_is_registrar', 'Registrars'),
-        ('all_is_staff', 'Staff'),
-    )
+    # PrivacyMixIn `visibility_` atttributes to configure visibility of possibly "private" fields
+    visibility_name_nickname = BitField(visibility_options, verbose_name='Nickname Visibility', default=('all',), blank=True)
+    visibility_name_personal = BitField(visibility_options, verbose_name='Personal Name Visibility', default=('all',), blank=True)
+    visibility_name_family = BitField(visibility_options, verbose_name='Family Name Visibility', default=('share_leagues',), blank=True)
+    visibility_email_address = BitField(visibility_options, verbose_name='Email Address Visibility', default=('share_leagues', 'share_teams'), blank=True)
+    visibility_BGGname = BitField(visibility_options, verbose_name='BoardGameGeek Name Visibility', default=('share_leagues', 'share_teams'), blank=True)
 
-    visibility_name_nickname = BitField(visibility, verbose_name='Nickname Visibility', default=('all',), blank=True)
-    visibility_name_personal = BitField(visibility, verbose_name='Personal Name Visibility', default=('all',), blank=True)
-    visibility_name_family = BitField(visibility, verbose_name='Family Name Visibility', default=('share_leagues',), blank=True)
-    visibility_email_address = BitField(visibility, verbose_name='Email Address Visibility', default=('share_leagues', 'share_teams'), blank=True)
-    visibility_BGGname = BitField(visibility, verbose_name='BoardGameGeek Name Visibility', default=('share_leagues', 'share_teams'), blank=True)
+    # Optionally associate with an import. We call it "source" and if it is null (none)
+    # this suggests not imported but entered directly through the UI.
+    source = models.ForeignKey(Import, verbose_name='Source', related_name='players', editable=False, null=True, on_delete=models.SET_NULL)
+
 
     @cached_property
     def owner(self) -> User:
@@ -247,22 +246,65 @@ class Player(PrivacyMixIn, AdminModel):
         else:
             return None
 
+    @property
+    def name_template(self):
+        '''
+        Can be used in HTML to anchor the position of a player name, that can then
+        be replaced by a rendered name. Templates are used for storing data so that
+        the privacy of players is not compromised by storing such data, and can be
+        managed at time of rendering the stored HTMl. Particularly relevant to cached
+        leaderboards (which contain HTML elements when session wrapped)
+        '''
+        return fr'{{Player\.{self.pk}}}'
+
+    @property
+    def name_variants(self):
+        '''
+        Returns a tuple of the name name variants supported with privacy rules applied.
+        '''
+        return (self.name_nickname, self.full_name , self.complete_name)
+
+    @property
+    def name_options(self):
+        '''
+        Returns a string enclosed { } containing first the Pk of the player and then
+        the name options. These are inthe order fo the optioins defined in
+        Leaderboards.leaderboards.enums.NameSelections, an enum that can index
+        into this list to get the name in the selected format.
+
+        This can be used with self.name_template. That is, instances in an HTML template
+        of self.name_template can be replaced by this at render time.
+
+        The reason this is done at render time si that such templates cna be cached globally
+        (in Leaderboard_Cache) and so only self.name_templates shoudl be stored, and when
+        the cache is retriend, they should be replaced pre-flight to the client with this
+        string, so the client side can render the template dynamically.
+        '''
+        return "{" + f"{self.pk}" + ",".join([v for v in self.name_variants]) + "}"
+
     def name(self, style="full"):
         '''
         Renders the players name in a nominated style
-        :param style: Supports "nick", "full", "complete", "flexi"
+        :param style: Supports "nick", "full", "complete", "flexi", "template"
 
         flexi is a special request to return {pk, nick, full, complete}
         empowering the caller to choose the name style later. This is
         ideally to allow a client to choose rendering in Javascript
         rather than fixing the rendering at server side.
+
+        template is another special request, to provide a PK containing template that
+        can be replaced with a rendered name when rendering takes place. That can
+        happen client side especially when flexis delivered (which has the Privacy
+        constraints applied already to all variants it supplies, and so the relevant
+        one can be chosed client side and applied by subbing htis template out.
         '''
-        # TODO: flexi has to use a delimeter that cannot be in a name and that should be enforced (names have them escaped
-        #       currently using comma, but names can still have commas!
+        # TODO: flexi has to use a delimeter that cannot be in a name and that should be enforced (names
+        #       have them escaped currently using comma, but names can still have commas!
         return (self.name_nickname if style == "nick"
            else self.full_name if style == "full"
            else self.complete_name if style == "complete"
-           else f"{{{self.pk},{self.name_nickname},{self.full_name},{self.complete_name}}}" if style == "flexi"
+           else self.name_options if style == "flexi"
+           else self.name_template if style == "template"
            else "Anonymous")
 
     def rating(self, game):

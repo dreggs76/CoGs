@@ -3,12 +3,12 @@
 #===============================================================================
 from django.conf import settings
 from django.urls import reverse_lazy
-from django.shortcuts import render
 from django.core.exceptions import ObjectDoesNotExist
 from django.http.response import HttpResponseRedirect
 
 from django_rich_views.util import class_from_string
 from django_rich_views.datetime import time_str
+from django_rich_views.render import rich_render
 
 from ..models import ChangeLog, RebuildLog, RATING_REBUILD_TRIGGER
 from ..leaderboards.style import restyle_leaderboard
@@ -148,11 +148,11 @@ def view_Impact(request, model, pk):
         # impacts contain two leaderboards. But if a diagnostic board is appended they contain 3.
         includes_diagnostic = len(impact_after_change[LB_STRUCTURE.game_data_element.value]) == 3
 
-        if settings.DEBUG:
-            log.debug(f"\t{islatest=}, {isfirst=}, {includes_diagnostic=}")
-
         # Get the list of games impacted by the change
         games = rlog.Games if rlog else clog.Games if clog else session.game
+
+        if settings.DEBUG:
+            log.debug(f"\t{islatest=}, {isfirst=}, {includes_diagnostic=}, {games=}, {rlog=}, {clog=}")
 
         # If there was a leaderboard rebuild get the before and after boards
         if rlog:
@@ -230,7 +230,7 @@ def view_Impact(request, model, pk):
                       "players_with_rankings_affected_by_rebuild": players_with_rankings_affected_by_rebuild,
                       })
 
-        return render(request, 'views/session_impact.html', context=c)
+        return rich_render(request, 'views/session_impact.html', context=c)
     else:
         return HttpResponseRedirect(reverse_lazy('view', kwargs={'model':model, 'pk':pk}))
 

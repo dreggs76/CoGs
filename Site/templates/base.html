@@ -1,12 +1,22 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="robots" content="NONE,NOARCHIVE" />
+
 	{% load static %}
+	{% load django-rich-views %}
 	{% load tags %}
 	<title>{% block title %}{% endblock %}</title>
 
+    <!-- DRV CSS -->
+	<link rel="stylesheet" type="text/css" href="{% static 'django-rich-views/css/default.css' %}" />
+
+    <!-- Site CSS -->
 	<link rel="stylesheet" type="text/css" href="{% static 'css/default.css' %}" />
-	<link rel="stylesheet" type="text/css" href="{% static 'django-rich-views/default.css' %}" />
+
 	<link rel="icon" href="{% static 'img/favicon.ico' %}">
 	<meta name="robots" content="NONE,NOARCHIVE" />
 	<meta charset="UTF-8" />
@@ -25,8 +35,8 @@
 		<!-- END DAL media -->
 	{% endif %}
 
-{#  An experiment to see if this fix helps me with setting tabindex on select widgets - ALas it didn't #}
-{#	<script src="{% static 'js/select2-tab-fix.min.js' %}"></script>#}
+	{#  An experiment to see if this fix helps me with setting tabindex on select widgets - Alas it didn't #}
+	{#	<script src="{% static 'js/select2-tab-fix.min.js' %}"></script>#}
 
 	<script src="{% static 'js/jstz.min.js' %}"></script>
 	<script src="{% static 'js/datetime_functions.js' %}"></script>
@@ -44,7 +54,7 @@
 		const DJANGO_utcoffset = "{{ active_utcoffset }}";
 	</script>
 
-	{# Include a client information subitter  #}
+	{# Include a client information subimtter  #}
 	<script src="{% static 'js/submit_info.js' %}"></script>
 
 	<script>
@@ -151,7 +161,7 @@
 							</select>
 {#							{{league_widget|safe}}#}
 						</div>
-				        <div id="login"">
+				        <div id="login">
 							{% if user.is_authenticated %}
 					        	[ Logged in as: {% if user.player %}{{ user.player }}{% else %}{{ user }}{% endif%}
 					        	| <a href="{% url 'logout' %}?next={{request.path}}">Logout</a> |

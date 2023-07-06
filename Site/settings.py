@@ -7,12 +7,16 @@ import os
 import sys
 
 from tzlocal import get_localzone
+from crequest.middleware import CrequestMiddleware
 from django.conf import global_settings
 
 # A custom CoGs setting that enables or disables use of the leaderboard cache.
 # It's great for performance, but gets in the way of performance tests on uncached
 # responses.
 USE_LEADERBOARD_CACHE = True
+USE_SESSION_FOR_LEADERBOARD_CACHE = False
+
+USE_BOOTSTRAP = False
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -22,7 +26,8 @@ SECRET_KEY = 'b21tutq1vl(af-d*uv85n6c$cfz!@rlhhi30wygqg=qb1+ofaj'
 # This is where manage.py collectstatic will place all the static files
 STATIC_ROOT = os.path.join(BASE_DIR, "static/")
 
-# And this is the URL where static files will be expected by django pages
+# Static files (CSS, JavaScript, Images)
+# https://docs.djangoproject.com/en/3.1/howto/static-files/
 STATIC_URL = "/static/"
 
 # This is where FileField will store files
@@ -50,8 +55,8 @@ if HOSTNAME == PRODUCTION:
     WARNINGS = False
 elif HOSTNAME == SANDBOX:
     SITE_TITLE = "CoGs Leaderboard Sandbox"
-    # database = "CoGs"
-    database = "CoGs_test"
+    database = "CoGs"
+    # database = "CoGs_test"
     DEBUG = True
     WARNINGS = True
 else:
@@ -84,7 +89,6 @@ if SITE_IS_LIVE:
     X_FRAME_OPTIONS = 'DENY'
 else:
     INTERNAL_IPS = ['127.0.0.1', '192.168.0.11']
-    from Site.settings_development import *
 
 # Don't debug when running tests (unless --debug-mode is used to override this.
 DEBUG = DEBUG and not TESTING
@@ -94,6 +98,7 @@ INSTALLED_APPS = (
     'dal',
     'dal_select2',
     'timezone_field',
+    'markdownfield',
     'mapbox_location_field',
     'django.contrib.admin',
     'django.contrib.auth',
@@ -112,6 +117,7 @@ INSTALLED_APPS = (
     'django_extensions',
     'reset_migrations',
     'django_rich_views',
+    'Site',
     'Leaderboards',
     'Import'
 )
@@ -126,7 +132,7 @@ MIDDLEWARE = (
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django_rich_views.middleware.TimezoneMiddleware',
-    'django_currentuser.middleware.ThreadLocalUserMiddleware',
+    'crequest.middleware.CrequestMiddleware',
     'Site.logutils.LoggingMiddleware'  # Just sets the reference time for logging to be at start of the request
 )
 
@@ -213,7 +219,7 @@ DATETIME_FORMAT = 'D, j M Y H:i'
 DATETIME_INPUT_FORMATS = ['%Y-%m-%d %H:%M:%S %z'] + global_settings.DATETIME_INPUT_FORMATS
 
 # The MapBox key for mapbox_location_field
-MAPBOX_KEY = "pk.eyJ1IjoidGh1bWJvbmUiLCJhIoiY2treHZ1aDZwMmpmMzJwbXI2MmRlZHlhbCJ9.1R5AO1qnzLzmTawb3ykFnQ"
+MAPBOX_KEY = "pk.eyJ1IjoidGh1bWJvbmUiLCJhIjoiY2xlcGt4eThoMGEwdTQybnFjMmhkYzZwdSJ9.8kCxKJg_MUmXlh0uEvsrTw"
 
 # Use the Pickle Serializer. It comes with a warning when using the cookie backend
 # but we're using the default database backend so are safe. Basically if:
@@ -316,6 +322,7 @@ if DEBUG:
     log.debug(f"Process Info: {pinfo()}")
     log.debug(f"Static root: {STATIC_ROOT}")
     log.debug(f"Static file dirs: {locals().get('STATICFILES_DIRS', globals().get('STATICFILES_DIRS', []))}")
+    log.debug(f"Installed apps: {INSTALLED_APPS}")
     log.debug(f"Database: {DATABASES['default']}")
     log.debug(f"Testing: {TESTING}")
     log.debug(f"Debug: {DEBUG}")

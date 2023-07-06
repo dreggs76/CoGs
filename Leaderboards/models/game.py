@@ -3,6 +3,8 @@ from . import APP, ALL_LEAGUES, FLOAT_TOLERANCE, MAX_NAME_LENGTH
 from ..leaderboards.enums import LB_PLAYER_LIST_STYLE
 from ..leaderboards.style import styled_player_list
 
+from Import.models import Import
+
 from django.db import models
 from django.db.models import Q, F, Func, Count, Sum, Max, Avg, Subquery, OuterRef
 from django.apps import apps
@@ -13,11 +15,14 @@ from django.core.exceptions import ObjectDoesNotExist, MultipleObjectsReturned
 from django_model_admin_fields import AdminModel
 
 from django_rich_views.decorators import property_method
-from django_rich_views.model import field_render, link_target_url
+from django_rich_views.model import field_render, link_target_url, NotesMixIn
 from django_rich_views.util import AssertLog
 from django_rich_views.queryset import get_SQL
+from django_rich_views.filterset import get_filterset
 
 from datetime import timedelta
+
+from crequest.middleware import CrequestMiddleware
 
 import json
 import enum
@@ -26,7 +31,7 @@ import trueskill
 from Site.logutils import log
 
 
-class Game(AdminModel):
+class Game(AdminModel, NotesMixIn):
     TourneyRules = apps.get_model(APP, "TourneyRules", False)
     League = apps.get_model(APP, "League", False)
 
@@ -81,7 +86,8 @@ class Game(AdminModel):
     leagues = models.ManyToManyField('League', verbose_name='Leagues', blank=True, related_name='games_played', through=League.games.through)
 
     # Which tourneys (if any) is this game a part of?
-    tourneys = models.ManyToManyField('Tourney', verbose_name='Tourneys', blank=True, through=TourneyRules)
+    # Not editable: Edit the Tourney to add games, not the game to add it to a Tourney.
+    tourneys = models.ManyToManyField('Tourney', verbose_name='Tourneys', editable=False, blank=True, through=TourneyRules)
 
     # Game specific TrueSkill settings
     # tau: 0- describes the luck element in a game.
@@ -94,6 +100,11 @@ class Game(AdminModel):
     trueskill_beta = models.FloatField('TrueSkill Skill Factor (ß)', default=trueskill.BETA)
     trueskill_tau = models.FloatField('TrueSkill Dynamics Factor (τ)', default=trueskill.TAU)
     trueskill_p = models.FloatField('TrueSkill Draw Probability (p)', default=trueskill.DRAW_PROBABILITY)
+
+    # Optionally associate with an import. We call it "source" and if it is null (none)
+    # this suggests not imported but entered directly through the UI.
+    source = models.ForeignKey(Import, verbose_name='Source', related_name='games', editable=False, null=True, blank=True, on_delete=models.SET_NULL)
+
 
     @property
     def global_sessions(self) -> list:
@@ -476,6 +487,7 @@ class Game(AdminModel):
         if settings.DEBUG:
             log.debug(f"\t\tBuilt leaderboard.")
 
+
         return None if len(lb) == 0 else styled_player_list(lb, style=style, names=names)
 
     @property_method
@@ -504,24 +516,33 @@ class Game(AdminModel):
             Session.leaderboard_snapshot
 
         A game wrapper contains:
-            game.pk,
-            game.BGGid
-            game.name
-            total number of plays
-            total number sessions played
-            A flag, True if data is a list, false if it is only a single value. The value is either a player_list or session_wrapped_player_list.
-            A flag, True if a reference snapshot is included
-            A flag, True if a baseline snapshot is included
-            data (a playerlist or a session snapshot - session wrapped player list)
+            0 game.pk,
+            1 game.BGGid
+            2 game.name
+            3 total number of plays
+            4 total number sessions played
+            5 A flag, True if data is a list, false if it is only a single value.
+                The value is either a player_list (game_wrapped_player_list)
+                or a session_wrapped_player_list (game_wrapped_session_wrapped_player_list)
+            6 A flag, True if a reference snapshot is included
+            7 A flag, True if a baseline snapshot is included
+            8 data (a playerlist or a session snapshot - session wrapped player list)
 
-        :param leaderboard:  a leaderboard or a list of session wrapped leaderboard (snaphots) for this game
-        :param snap:         if leaderboard is a list of snapshots, true, if leaderboard is a single leaderboard, false
-        :param hide_baseline:if snap is True, then if the last snapshot is a baseline that should be hidden this is true, else False
-        :param leagues:      self.leaderboard argument passed through
-        :param asat:         self.leaderboard argument passed through
-        :param names:        self.leaderboard argument passed through
-        :param style:        self.leaderboard argument passed through
-        :param data:         self.leaderboard argument passed through
+            Leaderboards.leaderboards.enums.LB_STRUCTURE provides pointers into this structure.
+                They must reflect what is produced here.
+
+        :param leaderboard:   a leaderboard or a single board (snap == False) or a list (snap=True) of boards
+                                where a board can be session_wrapped (game_wrapped_session_wrapped_player_list)
+                                or not (game_wrapped_player_list).
+        :param snap:          if leaderboard is a list of snapshots, true, if leaderboard is a single leaderboard, false
+        :param has_reference: a game wrapper flag to add, informs user that there's a reference snapshot included
+        :param has_baseline:  a game wrapper flag to add, informs user that there's a baseline snapshot included
+        :param hide_baseline: if snap is True, then if the last snapshot is a baseline that should be hidden this is true, else False
+        :param leagues:       self.leaderboard argument passed through
+        :param asat:          self.leaderboard argument passed through
+        :param names:         self.leaderboard argument passed through
+        :param style:         self.leaderboard argument passed through
+        :param data:          self.leaderboard argument passed through
         '''
         if leaderboard is None:
             leaderboard = self.leaderboard(leagues, asat, names, style, data)
@@ -531,7 +552,7 @@ class Game(AdminModel):
         if leaderboard:
             counts = self.play_counts()
 
-            # TODO: Respect styles. IMportantly .data shoudl be minimlist reoctructable.
+            # TODO: Respect styles. Importantly .data should be minimalist and reconstructable.
             # none might mean no wrapper
             # data drops the BGGid and name
             # rating and ratings map to simple
@@ -645,12 +666,34 @@ class Game(AdminModel):
 
     intrinsic_relations = None
 
+    def request_sessions(self):
+        '''
+        We include a session count in string representations, but want it to reflect any filters
+        in place for the current request, notably a league filter!
+        '''
+        request = CrequestMiddleware.get_request()
+        sessions = self.sessions.all()
+
+        fs = get_filterset(request, self.sessions.model)
+        if fs:
+            specs = fs.get_specs()
+            if specs:
+                sfilter = Q()
+                filters = ["__".join(spec.components) for spec in specs]
+                values = [spec.value for spec in specs]
+                for f, v in zip(filters, values):
+                    sfilter &= Q(**{f: v})
+                sessions = sessions.filter(sfilter)
+
+        return sessions
+
     def __unicode__(self): return getattr(self, self.selector_field)
 
     def __str__(self): return self.__unicode__()
 
     def __verbose_str__(self):
-        return f'{self.name} (plays {self.min_players}-{self.max_players})'
+        sessions = self.request_sessions()
+        return f'{self.name} ({len(sessions)} sessions recorded, {self.min_players}-{self.max_players} players)'
 
     def __rich_str__(self, link=None):
         name = field_render(self.name, link_target_url(self, link))
@@ -659,7 +702,8 @@ class Game(AdminModel):
         beta = self.trueskill_beta
         tau = self.trueskill_tau * 100
         p = int(self.trueskill_p * 100)
-        return f'{name} (plays {pmin}-{pmax}), Skill factor: {beta:0.2f}, Draw probability: {p:d}%, Skill dynamics factor: {tau:0.2f}'
+        sessions = self.request_sessions()
+        return f'{name} (({len(sessions)} sessions recorded, {pmin}-{pmax} players), Skill factor: {beta:0.2f}, Draw probability: {p:d}%, Skill dynamics factor: {tau:0.2f}'
 
     def __detail_str__(self, link=None):
         detail = self.__rich_str__(link)

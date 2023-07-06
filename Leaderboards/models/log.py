@@ -106,7 +106,7 @@ class ChangeLog(AdminModel):
         Returns the leaderboard impact before the change unpacked into a Python tuple.
 
         Note that before and after have two contexts.
-            Before and after teh change that was logged.
+            Before and after the change that was logged.
             Before and after the logged session was played.
         We endeavour to be clear at every stage which before and after we're talking about.
 
@@ -135,7 +135,7 @@ class ChangeLog(AdminModel):
         Returns the leaderboard impact after the change unpacked into a Python tuple.
 
         Note that before and after have two contexts.
-            Before and after teh change that was logged.
+            Before and after the change that was logged.
             Before and after the logged session was played.
         We endeavour to be clear at every stage which before and after we're talking about.
 
@@ -175,7 +175,7 @@ class ChangeLog(AdminModel):
         if game == self.game_after_change or game == "after":
             return lb_after_change
 
-        # Only if the game chnaged, are we interested in checking the before
+        # Only if the game changed, are we interested in checking the before
         # change game as well and if we have that one, we want its leaderboard impact.
         elif game == self.game_before_change or game == "before":
             return lb_before_change
@@ -268,8 +268,8 @@ class ChangeLog(AdminModel):
         either way as long as it is saved in the same transaction as the submitted
         form and so commits or rolls back in unison with that save.
 
-        change_summary and rebuild_log are optional and can be saved now (at time of update) or earlier (at time of creation).
-        Either way is fine.
+        change_summary and rebuild_log are optional and can be saved now (at time of
+        update) or earlier (at time of creation). Either way is fine.
 
         :param session:        A Session object, the change to which we are logging.
         :param change_summary: A JSON log of change_summary, as produced by session.__json__(form_data)
@@ -302,6 +302,13 @@ class ChangeLog(AdminModel):
 
         if isinstance(rebuild_log, RebuildLog):
             self.rebuild_log = rebuild_log
+
+    @classmethod
+    def clear(cls):
+        '''
+        Deletes all logs (use with prudence)
+        '''
+        cls.objects.all().delete()
 
     class Meta(AdminModel.Meta):
         verbose_name = "Change Log"
@@ -567,6 +574,13 @@ class RebuildLog(AdminModel):
         for game in self.Games:
             impacts[game.pk] = self.leaderboard_impact(game)
         return impacts
+
+    @classmethod
+    def clear(cls):
+        '''
+        Deletes all logs (use with prudence)
+        '''
+        cls.objects.all().delete()
 
     class Meta(AdminModel.Meta):
         verbose_name = "Rebuild Log"
